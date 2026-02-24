@@ -1,0 +1,64 @@
+name: Direct_To_HuggingFace_CDN
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'لینکی ڤیدیۆکە (بە تۆکنەکەیەوە)'
+        required: true
+      file_name:
+        description: 'ناوی فایلەکە لەناو Hugging Face (بە .mp4 کۆتایی بێت)'
+        required: true
+        default: 'video.mp4'
+      referer_url:
+        description: 'سەرچاوەی لینکەکە (بۆ تێپەڕاندنی 403 Forbidden)'
+        required: true
+        default: 'https://zedflix.tv/'
+
+jobs:
+  upload_job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🏗️ Setup Tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg -qq
+          python -m pip install -U pip yt-dlp huggingface_hub curl-cffi
+
+      - name: ⬇️ Download Video (Bypass Cloudflare & 403)
+        run: |
+          yt-dlp \
+            --extractor-args "generic:impersonate" \
+            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" \
+            --add-header "Referer: ${{ inputs.referer_url }}" \
+            --add-header "Origin: ${{ inputs.referer_url }}" \
+            -o "video.mp4" "${{ inputs.video_url }}"
+
+      - name: 🚀 Upload to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          FILE_NAME: ${{ inputs.file_name }}
+        run: |
+          python3 -c "
+          import os
+          from huggingface_hub import HfApi
+          
+          token = os.getenv('HF_TOKEN')
+          if not token:
+              print('❌ Error: HF_TOKEN is missing in GitHub Secrets!')
+              exit(1)
+              
+          api = HfApi()
+          repo_id = 'Sarkoakram/sarko761'
+          file_name = os.getenv('FILE_NAME', 'video.mp4')
+          
+          print(f'📤 Sending to Hugging Face: {file_name}...')
+          
+          api.upload_file(
+              path_or_fileobj='video.mp4',
+              path_in_repo=file_name,
+              repo_id=repo_id,
+              repo_type='dataset',
+              token=token
+          )
+          print('✅ Done! Check your Hugging Face repo.')
+          "
